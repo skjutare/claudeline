@@ -26,7 +26,7 @@ with no external dependencies (stdlib only).
 | `⚡️`                 | Peak hours: 5-hour limit burns faster than normal           |
 | `⚠️`                 | Approaching auto-compaction threshold                       |
 | `🥵`                 | Extended context (>200k tokens) — model quality may degrade |
-| `↑`                  | Update available                                            |
+| `↑`                  | New `claudeline` update available                           |
 | `🔥▂` `🔥▄▂` `🔥▆▄▂` | Anthropic service disruption (minor / major / critical)     |
 
 ## Installation
