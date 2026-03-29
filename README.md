@@ -1,6 +1,7 @@
 # claudeline
 
-A minimalistic and opinionated Claude Code status line.
+A minimalistic and opinionated
+[Claude Code status line](https://code.claude.com/docs/en/statusline).
 
 <img width="930" height="112" alt="claudeline_pro" src="https://github.com/user-attachments/assets/1c28cf80-c562-47fa-8ae4-2dda6bccd336" />
 
