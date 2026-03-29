@@ -151,16 +151,19 @@ func run(cfg config) error {
 		return fmt.Errorf("parse stdin: %w", err)
 	}
 
-	// Read credentials (skipped when file overrides are set).
+	// Determine plan. API providers (Bedrock, Vertex, Foundry, API key) are
+	// detected from environment variables and skip credential resolution
+	// entirely — they have no 5h/7d usage quotas.
 	var cred creds.Credentials
 	var plan string
+	var isProvider bool
 	if cfg.usageFile != "" && cfg.statusFile != "" {
 		plan = "Debug"
 	} else {
-		// Check for API provider first (Bedrock, Vertex, Foundry, API key).
 		plan = creds.Provider()
-		if plan == "" {
-			// Fall back to subscription type from OAuth credentials.
+		isProvider = plan != ""
+		if !isProvider {
+			// No API provider detected — resolve OAuth credentials for subscription plan.
 			cred, err = creds.Read(ctx, os.Getenv("CLAUDE_CONFIG_DIR"), keychainServiceName())
 			if err != nil {
 				log.Printf("credentials: %v", err)
@@ -206,7 +209,8 @@ func run(cfg config) error {
 	token := cred.ClaudeAiOauth.AccessToken
 	subType := cred.ClaudeAiOauth.SubscriptionType
 
-	wg.Go(func() {
+	// Providers have no 5h/7d quotas — skip credential use and usage API.
+	if !isProvider {
 		if cfg.usageFile != "" {
 			resp, err := usage.ReadResponse(cfg.usageFile)
 			if err != nil {
@@ -214,30 +218,28 @@ func run(cfg config) error {
 			}
 			usageResp = resp
 		} else {
-			switch {
-			case token == "":
-				log.Printf("usage: no access token found")
-			case plan == "":
-				log.Printf(
-					"usage: unknown subscription type %q, expected pro/max/team/enterprise",
-					subType,
-				)
-			default:
-				resp, err := usage.Fetch(ctx, token, cacheFilePath())
-				if err != nil && !errors.Is(err, usage.ErrCachedRateLimited) &&
-					!errors.Is(err, usage.ErrCachedFailure) {
-					log.Printf("usage: %v", err)
+			wg.Go(func() {
+				switch {
+				case token == "":
+					log.Printf("usage: no access token found")
+				case plan == "":
+					log.Printf(
+						"usage: unknown subscription type %q, expected pro/max/team/enterprise",
+						subType,
+					)
+				default:
+					resp, err := usage.Fetch(ctx, token, cacheFilePath())
+					if err != nil && !errors.Is(err, usage.ErrCachedRateLimited) &&
+						!errors.Is(err, usage.ErrCachedFailure) {
+						log.Printf("usage: %v", err)
+					}
+					usageResp = resp
 				}
-				usageResp = resp
-			}
+			})
 		}
-	})
+	}
 
-	wg.Go(func() {
-		// Skip status.claude.com for providers with their own infrastructure.
-		if creds.IsThirdPartyProvider(plan) {
-			return
-		}
+	if !creds.IsThirdPartyProvider(plan) {
 		if cfg.statusFile != "" {
 			resp, err := status.ReadResponse(cfg.statusFile)
 			if err != nil {
@@ -245,29 +247,31 @@ func run(cfg config) error {
 			}
 			statusResp = resp
 		} else {
-			resp, err := status.Fetch(ctx, statusCacheFilePath())
-			if err != nil {
-				log.Printf("status: %v", err)
-			}
-			statusResp = resp
+			wg.Go(func() {
+				resp, err := status.Fetch(ctx, statusCacheFilePath())
+				if err != nil {
+					log.Printf("status: %v", err)
+				}
+				statusResp = resp
+			})
 		}
-	})
+	}
 
-	wg.Go(func() {
-		if cfg.updateFile != "" {
-			resp, err := update.ReadResponse(cfg.updateFile)
-			if err != nil {
-				log.Printf("update: read file: %v", err)
-			}
-			updateResp = resp
-		} else {
+	if cfg.updateFile != "" {
+		resp, err := update.ReadResponse(cfg.updateFile)
+		if err != nil {
+			log.Printf("update: read file: %v", err)
+		}
+		updateResp = resp
+	} else {
+		wg.Go(func() {
 			resp, err := update.Fetch(ctx, currentVersion(), updateCacheFilePath())
 			if err != nil {
 				log.Printf("update: %v", err)
 			}
 			updateResp = resp
-		}
-	})
+		})
+	}
 
 	wg.Wait()
 
