@@ -4,15 +4,45 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/fredrikaverpil/claudeline/internal/paths"
 )
 
 const ioTimeout = 5 * time.Second
+
+// API provider names returned by Provider().
+const (
+	ProviderBedrock = "Bedrock"
+	ProviderVertex  = "Vertex"
+	ProviderFoundry = "Foundry"
+	ProviderAPI     = "API" // Anthropic's API
+)
+
+// Subscription display names returned by SubscriptionType().
+const (
+	SubFree       = "Free"
+	SubPro        = "Pro"
+	SubMax        = "Max"
+	SubTeam       = "Team"
+	SubEnterprise = "Enterprise"
+	SubDebug      = "Debug" // Only used by claudeline while debugging
+	SubUnknown    = "Unknown subscription type"
+)
+
+// thirdPartyProviders are providers that use non-Anthropic infrastructure
+// (AWS, GCP, Azure). status.claude.com is not relevant for these.
+var thirdPartyProviders = map[string]bool{
+	ProviderBedrock: true,
+	ProviderVertex:  true,
+	ProviderFoundry: true,
+}
 
 // Credentials is the OAuth credentials structure.
 type Credentials struct {
@@ -45,11 +75,7 @@ func Read(ctx context.Context, configDir, keychainService string) (Credentials, 
 
 	// File fallback.
 	if configDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return Credentials{}, fmt.Errorf("get home dir: %w", err)
-		}
-		configDir = filepath.Join(home, ".claude")
+		configDir = paths.DefaultConfigDir()
 	}
 	data, err := os.ReadFile(
 		filepath.Join(configDir, ".credentials.json"),
@@ -62,22 +88,6 @@ func Read(ctx context.Context, configDir, keychainService string) (Credentials, 
 		return Credentials{}, fmt.Errorf("parse credentials file: %w", err)
 	}
 	return creds, nil
-}
-
-// API provider names returned by Provider().
-const (
-	ProviderBedrock = "Bedrock"
-	ProviderVertex  = "Vertex"
-	ProviderFoundry = "Foundry"
-	ProviderAPI     = "API" // Anthropic's API
-)
-
-// thirdPartyProviders are providers that use non-Anthropic infrastructure
-// (AWS, GCP, Azure). status.claude.com is not relevant for these.
-var thirdPartyProviders = map[string]bool{
-	ProviderBedrock: true,
-	ProviderVertex:  true,
-	ProviderFoundry: true,
 }
 
 // Provider returns the API provider name based on environment variables.
@@ -104,20 +114,51 @@ func IsThirdPartyProvider(provider string) bool {
 	return thirdPartyProviders[provider]
 }
 
-// PlanName maps a subscription type to a display name.
-func PlanName(subType string) string {
+// Resolve determines the subscription type and credentials from environment
+// variables and local credential stores. API providers (Bedrock, Vertex,
+// Foundry, API key) skip credential resolution entirely. When debugMode is
+// true, the "Debug" plan is returned without any credential lookup.
+func Resolve(ctx context.Context, debugMode bool, configDir string) (Credentials, string, bool) {
+	if debugMode {
+		return Credentials{}, SubDebug, false
+	}
+	sub := Provider()
+	if sub != "" {
+		return Credentials{}, sub, true
+	}
+	cred, err := Read(ctx, configDir, KeychainServiceName(configDir))
+	if err != nil {
+		log.Printf("credentials: %v", err)
+		return Credentials{}, ProviderAPI, false
+	}
+	sub = SubscriptionType(cred.ClaudeAiOauth.SubscriptionType)
+	if sub == "" {
+		log.Printf("unknown subscription type: subscription_type=%q", cred.ClaudeAiOauth.SubscriptionType)
+		sub = SubUnknown
+	}
+	return cred, sub, false
+}
+
+// KeychainServiceName returns the macOS Keychain service name used by Claude Code.
+// When configDir is non-empty, a hash suffix is appended to avoid collisions between profiles.
+func KeychainServiceName(configDir string) string {
+	return "Claude Code-credentials" + paths.ConfigDirSuffix(configDir)
+}
+
+// SubscriptionType maps a subscription type to a display name.
+func SubscriptionType(subType string) string {
 	lower := strings.ToLower(subType)
 	switch {
 	case strings.Contains(lower, "free"):
-		return "Free"
+		return SubFree
 	case strings.Contains(lower, "pro"):
-		return "Pro"
+		return SubPro
 	case strings.Contains(lower, "max"):
-		return "Max"
+		return SubMax
 	case strings.Contains(lower, "team"):
-		return "Team"
+		return SubTeam
 	case strings.Contains(lower, "enterprise"):
-		return "Enterprise"
+		return SubEnterprise
 	default:
 		return ""
 	}

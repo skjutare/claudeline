@@ -481,3 +481,160 @@ func TestResetTime_invalid(t *testing.T) {
 		t.Errorf("ResetTime(invalid) = %q, want empty", got)
 	}
 }
+
+func TestCompactName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		input  string
+		maxLen int
+		want   string
+	}{
+		{
+			name:   "short name unchanged",
+			input:  "main",
+			maxLen: 30,
+			want:   "main",
+		},
+		{
+			name:   "exactly at limit",
+			input:  strings.Repeat("a", 30),
+			maxLen: 30,
+			want:   strings.Repeat("a", 30),
+		},
+		{
+			name:   "truncated with ellipsis",
+			input:  "backup/feat-support-claudeline-progress-tracker",
+			maxLen: 30,
+			want:   "backup/feat-su…rogress-tracker",
+		},
+		{
+			name:   "empty string",
+			input:  "",
+			maxLen: 30,
+			want:   "",
+		},
+		{
+			name:   "multibyte unicode",
+			input:  "日本語テスト文字列",
+			maxLen: 5,
+			want:   "日本…字列",
+		},
+		{
+			name:   "maxLen 3",
+			input:  "abcdef",
+			maxLen: 3,
+			want:   "a…f",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := compactName(tt.input, tt.maxLen)
+			if got != tt.want {
+				t.Errorf("compactName(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+			}
+			if len([]rune(got)) > tt.maxLen {
+				t.Errorf("compactName(%q, %d) rune length = %d, exceeds maxLen", tt.input, tt.maxLen, len([]rune(got)))
+			}
+		})
+	}
+}
+
+func TestCwdName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		cwd    string
+		maxLen int
+		want   string
+	}{
+		{
+			name:   "simple path",
+			cwd:    "/Users/fredrik/code/public/claudeline",
+			maxLen: 30,
+			want:   "claudeline",
+		},
+		{
+			name:   "root path",
+			cwd:    "/",
+			maxLen: 30,
+			want:   "",
+		},
+		{
+			name:   "empty cwd",
+			cwd:    "",
+			maxLen: 30,
+			want:   "",
+		},
+		{
+			name:   "trailing slash",
+			cwd:    "/Users/fredrik/code/claudeline/",
+			maxLen: 30,
+			want:   "claudeline",
+		},
+		{
+			name:   "long name truncated",
+			cwd:    "/home/user/my-very-long-project-name-that-exceeds-limit",
+			maxLen: 20,
+			want:   "my-very-l…eeds-limit",
+		},
+		{
+			name:   "windows path",
+			cwd:    `C:\Users\oa\code\claudeline`,
+			maxLen: 30,
+			want:   "claudeline",
+		},
+		{
+			name:   "home directory",
+			cwd:    "/Users/fredrik",
+			maxLen: 30,
+			want:   "fredrik",
+		},
+		{
+			name:   "windows root C:\\",
+			cwd:    `C:\`,
+			maxLen: 30,
+			want:   "",
+		},
+		{
+			name:   "windows root C:/",
+			cwd:    "C:/",
+			maxLen: 30,
+			want:   "",
+		},
+		{
+			name:   "bare windows drive letter",
+			cwd:    "C:",
+			maxLen: 30,
+			want:   "",
+		},
+		{
+			name:   "dot cwd",
+			cwd:    ".",
+			maxLen: 30,
+			want:   "",
+		},
+		{
+			name:   "backslash only",
+			cwd:    `\`,
+			maxLen: 30,
+			want:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := cwdName(tt.cwd, tt.maxLen)
+			if got != tt.want {
+				t.Errorf("cwdName(%q, %d) = %q, want %q", tt.cwd, tt.maxLen, got, tt.want)
+			}
+		})
+	}
+}
