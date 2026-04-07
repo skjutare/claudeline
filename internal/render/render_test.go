@@ -14,7 +14,7 @@ func TestBuild_NoPlan(t *testing.T) {
 
 	// With plan: output contains the plan string.
 	withPlan := Build(Params{
-		LoginType:            "Pro",
+		LoginType:      "Pro",
 		Model:          "Opus 4.6",
 		ContextUsedPct: &pct,
 	})
@@ -24,7 +24,7 @@ func TestBuild_NoPlan(t *testing.T) {
 
 	// Without plan (simulates -no-plan): output has the model but no plan.
 	withoutPlan := Build(Params{
-		LoginType:            "",
+		LoginType:      "",
 		Model:          "Opus 4.6",
 		ContextUsedPct: &pct,
 	})
